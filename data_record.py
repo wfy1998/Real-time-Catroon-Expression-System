@@ -5,6 +5,10 @@ import time
 import keyboard
 import numpy as np
 import csv
+import sounddevice
+import sys
+import soundfile as sf
+import threading
 from argparse import ArgumentParser
 from core.videosource import WebcamSource
 from core.face_geometry import (
@@ -24,7 +28,7 @@ cap = cv2.VideoCapture(0)
 
 
 # data normalization
-landmark_number = 468
+landmark_number = 468 # total landmark points
 points_idx = [33, 263, 61, 291, 199]
 points_idx = points_idx + [key for (key, val) in procrustes_landmark_basis]
 points_idx = list(set(points_idx))
@@ -44,21 +48,40 @@ camera_matrix = np.array(
 dist_coeff = np.zeros((4, 1))
 
 
+# par setting
+expressionID = 0 # expression ID
+user_name = '' # user name
+file_name_3D = '' # file name that store 2D data
+file_name_3D = '' # file name that store 3D data
+frame_step = 28 # vedio record length. default is 28 frame.
+floder_name = '' # floder that store user's data
+file_3d = ''
+file_2d = ''
+# set audio record
+fs = 16000
+seconds = 1
+
+
+def on_press(key):
+    if key == keyboard.Key.space:  # 检测空格键
+        # 创建并启动线程，录制音频和视频
+        threading.Thread(target=video_record, args=(2,)).start()
+        threading.Thread(target=audio_record, args=(2,)).start()
+    elif key == keyboard.KeyCode.from_char('q'):  # 检测 'q' 键
+        print("Exiting the program")
+        cap.release()
+        sys.exit()
+
 
 
 def main():
-  # par setting
-  expressionID = 0 # expression ID
-  user_name = '' # user name
-  file_name_3D = '' # file name that store 2D data
-  file_name_3D = '' # file name that store 3D data
-  frame_step = 28 # vedio record length. default is 28 frame.
-  floder_name = '' # floder that store user's data
+
   
   # ask user enter info
   user_name = input("please enter your name: ")
   expressionID = input("Please enter the expression ID you want to record: ")
   
+
   
   # set file name that store 3D and 2D data
   folder_name = user_name
@@ -77,7 +100,23 @@ def main():
   file_2d = open('data/{}/{}'.format(user_name, twoDfile), mode='a', newline='')
 
 
-  # record start
+  with keyboard.Listener(on_press=on_press) as listener:
+    listener.join()
+
+  
+  if cv2.waitKey(1) & 0xFF == 'q': 
+    file_3d.close()
+    file_2d.close()
+    cap.release()
+
+
+def audio_record():
+  print("file name")
+
+
+def video_record():
+  global file_3d, file_2d
+   # record start
   flag2= 0
   rows_3d = []
   rows_2d = []
@@ -188,7 +227,6 @@ def main():
             print("record finish, size is: " + str(len(rows_2d)) + " and: " + str(len(rows_2d[1])))
 
           else:
-            print(rows_2d[1])
             print("record finish, size is: " + str(len(rows_2d)) + " and: " + str(len(rows_2d[1])))
             print("record fail")
           rows_3d = []
@@ -197,13 +235,7 @@ def main():
       # Flip the image horizontally for a selfie-view display.
       cv2.imshow('MediaPipe Face Mesh', cv2.flip(image, 1))
       cv2.imshow('second window', cv2.flip(image2,1))
-      if cv2.waitKey(1) & 0xFF == 'q':
-        break
-      if keyboard.is_pressed('q'):
-        break
-  file_3d.close()
-  file_2d.close()
-  cap.release()
+
 
 if __name__ == "__main__":
 
@@ -219,7 +251,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--record_data",action="store_true",
                         help="Store landmark data to database",
-                        default=False)
+                        default=True)
 
     parser.add_argument("--debug", action="store_true",
                         help="showing raw values of detection in the terminal",
