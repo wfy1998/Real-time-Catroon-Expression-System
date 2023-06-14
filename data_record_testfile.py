@@ -294,7 +294,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--record_data",action="store_true",
                         help="Store landmark data to database",
-                        default=True)
+                        default=False)
 
     parser.add_argument("--debug", action="store_true",
                         help="showing raw values of detection in the terminal",
