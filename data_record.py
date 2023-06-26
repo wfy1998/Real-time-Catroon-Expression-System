@@ -54,7 +54,7 @@ expressionID = 0 # expression ID
 user_name = '' # user name
 file_name_3D = '' # file name that store 2D data
 file_name_3D = '' # file name that store 3D data
-frame_step = 28 # vedio record length. default is 28 frame.
+frame_step = 60 # vedio record length. default is 60 frame.
 floder_name = '' # floder that store user's data
 space_press = False # check if the space is pressed
 audio_ID = 0
@@ -80,7 +80,9 @@ def on_press(key):
         # 当按下 'q' 键，停止监听器
         sys.exit()
         return False
-def record_audio(duration = 2):
+    
+    
+def record_audio(duration = 1):
     # print('Recording audio')
     
     # for i in range(50):
@@ -107,9 +109,14 @@ def record_audio(duration = 2):
     recording_audio = False
     audio_frames = sd.rec(int(duration * fs), samplerate=fs, channels=2)
     sd.wait()
+    has_nan = np.isnan(audio_frames).any()
+    if has_nan:
+        print("has nan----------")
     write('data/{}/{}_{}.wav'.format(user_name,str(expressionID), str(audio_ID)),  fs, audio_frames)  # 保存为WAV文件
     audio_ID +=1
     print("录音结束，保存中...ID is: {}".format(expressionID))
+    # print(audio_frames)
+    # print(audio_frames.shape)
 
     
 
@@ -212,7 +219,9 @@ def main():
             # recording data
             if args.press_key:
                 if recording_audio:
-                    threading.Thread(target=record_audio).start()
+                    t = threading.Thread(target=record_audio)
+                    t.daemon = True
+                    t.start()
                     recording_audio = False
                 if recording_video:
                     print("start recording video")
@@ -223,7 +232,6 @@ def main():
 
             if record_video == 1: 
                 if frame_count < frame_step:
-                    print("recording vedio")
                     if args.data_normalization:
                         landmarks = np.array([(lm.x, lm.y, lm.z) for lm in results.multi_face_landmarks[0].landmark ])
                         landmarks = landmarks.T
@@ -294,7 +302,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--record_data",action="store_true",
                         help="Store landmark data to database",
-                        default=True)
+                        default=False)
 
     parser.add_argument("--debug", action="store_true",
                         help="showing raw values of detection in the terminal",

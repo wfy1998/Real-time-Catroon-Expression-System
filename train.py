@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset,random_split
 import torchaudio
 # import pandas as pd
 import torch.nn as nn
@@ -32,16 +32,16 @@ class Dataload(Dataset):
         audio_folder = 'data/{}'.format(user_name)
         df = pd.read_csv('data/{}/2D_time_data_{}.csv'.format(user_name, user_name),header=None)
         audio_length = 16000
-        hop_length = audio_length // 28
+        hop_length = audio_length // 60
         X = df.iloc[: , 1:]
         y = df.iloc[: , :1]
-        print("X shape: " + str(X.shape))
+        # print("X shape: " + str(X.shape))
         x = np.zeros((X.shape[0],X.shape[1],936))
         for i in range(X.shape[0]):
             for j in range(X.shape[1]):
                 x[i][j] = string_convert(X.values[i][j])
-        print("x shape: " + str(x[0].shape))
-        print("x val: " + str(x[0][0]))
+        # print("x shape: " + str(x[0].shape))
+        # print("x val: " + str(x[0][0]))
         # audio index par
         audio_index = 0
         current_label = 0
@@ -62,8 +62,9 @@ class Dataload(Dataset):
                 sound, sample_rate = torchaudio.load(audio_path)
             else:
                 print("file {} doesn't exist".format(audio_path))
-
+            print("audio data size {}".format(sound.shape))
             soundData = torch.mean(sound, dim=0, keepdim=True)
+            print("sound data size {}".format(soundData.shape))
             tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
             if soundData.numel() < 16000:
                 tempData[:, :soundData.numel()] = soundData
@@ -71,18 +72,18 @@ class Dataload(Dataset):
                 tempData = soundData[:, :16000]
 
             soundData = tempData
-            
+            print("sound data size after mul {}".format(soundData.shape))
             mel_specgram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate, hop_length=hop_length-2)(soundData)  # (channel, n_mels, time)
-            mel_specgram = mel_specgram[:,:,:28]
+            mel_specgram = mel_specgram[:,:,:60]
             mel_specgram = torch.squeeze(mel_specgram)
-
-            # print(transposed_data.shape)
+            print("info")
+            print(transposed_data.shape)
             final_data = torch.cat((torch.from_numpy(transposed_data), mel_specgram),dim=0)
-            # print(final_data.shape)
+            print(final_data.shape)
 
             self.data.append((final_data.T, label))
-        print(type(transposed_data[0][0]))
-        print(type(int(label)))
+        # print(type(transposed_data[0][0]))
+        # print(type(int(label)))
 
         # load audio data
         
@@ -114,6 +115,7 @@ class AudioLSTM(nn.Module):
 
     def forward(self, x, hidden):
         x = x.float()
+        
         # x.shape (batch, seq_len, n_features)
         l_out, l_hidden = self.lstm(x, hidden)
 
@@ -144,7 +146,6 @@ def train(model, epoch):
         # print("data size: " + str(data.size()))
         model.zero_grad()
         output, hidden_state = model(data, model.init_hidden(hyperparameters["batch_size"]))
-        
         loss = criterion(output, target)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), clip)
@@ -178,7 +179,7 @@ def test(model, epoch):
 # pd_load()
 
 
-hyperparameters = {"lr": 0.005, "weight_decay": 0.0001, "batch_size": 4, "in_feature": 1064, "out_feature": 7}
+hyperparameters = {"lr": 0.005, "weight_decay": 0.0001, "batch_size": 1, "in_feature": 1064, "out_feature": 7}
 
 device = torch.device("cpu")
 
@@ -190,10 +191,20 @@ print("Test set size: " + str(len(train_set)))
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}  # needed for using datasets on gpu
 
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
-test_loader = torch.utils.data.DataLoader(train_set, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
+train_ration = 0.8
+test_ration = 1-train_ration
+
+num_samples = len(train_set)
+train_size = int(train_ration * num_samples)
+test_size = num_samples - train_size
+
+train_dataset, test_dataset = random_split(train_set, [train_size, test_size])
+
+
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
 # test_loader = torch.utils.data.DataLoader(test_set, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
-# print("Train_loader set size: " + str(len(train_loader)))
+print("Train_loader set size: " + str(len(train_loader)))
 # print("Test_loader set size: " + str(len(test_loader)))
 
 model = AudioLSTM(n_feature=hyperparameters["in_feature"], out_feature=hyperparameters["out_feature"])
@@ -209,3 +220,16 @@ for epoch in range(1, 100):
     # scheduler.step()
     train(model, epoch)
     test(model, epoch)
+torch.save(model,'models/{}'.format(user_name))
+
+
+# # load model
+# load_model = torch.load('models/{}'.format(user_name))
+
+# for data, target in test_loader:
+#         data = data.to(device)
+#         target = target.to(device)
+#         print(data.shape)
+#         output, hidden_state = load_model(data, model.init_hidden(hyperparameters["batch_size"]))
+#         pred = torch.max(output, dim=1).indices
+#         print(pred)
