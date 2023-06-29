@@ -62,7 +62,7 @@ class Dataload(Dataset):
                 sound, sample_rate = torchaudio.load(audio_path)
             else:
                 print("file {} doesn't exist".format(audio_path))
-            print("audio data size1111111111111111111111111111111111111111 {}".format(sound.shape))
+            print("audio data size {}".format(sound.shape))
             soundData = torch.mean(sound, dim=0, keepdim=True)
             print("sound data size {}".format(soundData.shape))
             tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
@@ -81,7 +81,7 @@ class Dataload(Dataset):
             final_data = torch.cat((torch.from_numpy(transposed_data), mel_specgram),dim=0)
             print(final_data.shape)
 
-            self.data.append((final_data.T, label))
+            self.data.append((mel_specgram.T, label))
         # print(type(transposed_data[0][0]))
         # print(type(int(label)))
 
@@ -164,10 +164,11 @@ def test(model, epoch):
     for data, target in test_loader:
         data = data.to(device)
         target = target.to(device)
-        
+        print("the data size is {}".format(data))
         output, hidden_state = model(data, model.init_hidden(hyperparameters["batch_size"]))
         
         pred = torch.max(output, dim=1).indices
+        # print("pred is {} and target is {}".format(pred, target))
         correct += pred.eq(target).cpu().sum().item()
         y_pred = y_pred + pred.tolist()
         y_target = y_target + target.tolist()
@@ -179,7 +180,7 @@ def test(model, epoch):
 # pd_load()
 
 
-hyperparameters = {"lr": 0.005, "weight_decay": 0.0001, "batch_size": 1, "in_feature": 1064, "out_feature": 7}
+hyperparameters = {"lr": 0.005, "weight_decay": 0.0001, "batch_size": 1, "in_feature": 128, "out_feature": 7}
 
 device = torch.device("cpu")
 
@@ -191,7 +192,7 @@ print("Test set size: " + str(len(train_set)))
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}  # needed for using datasets on gpu
 
-train_ration = 0.8
+train_ration = 0.1
 test_ration = 1-train_ration
 
 num_samples = len(train_set)
@@ -207,7 +208,8 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=hyperparamete
 print("Train_loader set size: " + str(len(train_loader)))
 # print("Test_loader set size: " + str(len(test_loader)))
 
-model = AudioLSTM(n_feature=hyperparameters["in_feature"], out_feature=hyperparameters["out_feature"])
+#model = AudioLSTM(n_feature=hyperparameters["in_feature"], out_feature=hyperparameters["out_feature"])
+model = torch.load('models/{}'.format(user_name))
 model.to(device)
 
 optimizer = optim.SGD(model.parameters(), lr=hyperparameters['lr'], weight_decay=hyperparameters['weight_decay'])
@@ -216,11 +218,11 @@ criterion = nn.CrossEntropyLoss()
 clip = 5  # gradient clipping
 
 log_interval = 10
-for epoch in range(1, 100):
+for epoch in range(1, 2):
     # scheduler.step()
-    train(model, epoch)
+    #train(model, epoch)
     test(model, epoch)
-torch.save(model,'models/{}'.format(user_name))
+#torch.save(model,'models/{}'.format(user_name))
 
 
 # # load model

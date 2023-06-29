@@ -12,6 +12,7 @@ from collections import deque
 import pyrr
 from pynput import keyboard
 import csv
+from scipy.io.wavfile import write
 
 # for TCP connection with unity
 import socket
@@ -44,7 +45,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset,random_split
 import torchaudio
 import torch.optim as optim
-
+import traceback
 
 
 # model
@@ -96,15 +97,17 @@ stop = False
 sample_rate = 16000  # 采样率
 chunk_duration = 1 # 持续时间（以秒为单位）
 chunk_samples = int(sample_rate * chunk_duration)  # 每个数据块的样本数
-hop_length = sample_rate // 60
+hop_length = sample_rate //60
 duration = 1 # audio record time second
 # 初始化 MFCC 转换器
 mfcc_transform = torchaudio.transforms.MFCC(sample_rate=sample_rate, n_mfcc=12)
-mel = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate)
+mel = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate, hop_length=hop_length-2)
 
 # 创建一个队列来存储音频数据
 audio_queue = queue.Queue()
-audio_frames = torch.zeros([2, 16000])
+temData = np.empty((16000, 1))
+
+
 # model para
 device = torch.device("cpu")
 model = torch.load('models/{}'.format(user_name))
@@ -131,55 +134,84 @@ train_data_set = []
 
 
 def audio_record():
-    global audio_frames
+    global audio_frames, mel_specgram
+    audio_ID = 0
     while(1):
         audio_frames = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=2)
         sd.wait()
-        has_nan = np.isnan(audio_frames).any()
-        if has_nan:
-            print("audio record has nan----------")
-        # print(audio_frames.shape)
+        #print("audio_frames shape is: {} and type is {}".format(audio_frames.shape, type(audio_frames))) #记录会出现nan值
+        # has_nan = np.isnan(audio_frames)
+        # if np.any(has_nan):
+        #     print("audio_record has nan")
+        audio_tensor = torch.from_numpy(audio_frames).float().to(torch.float32)
+        # print("the audio tensor is: {}".format(audio_tensor.shape))
+        soundData = torch.mean(audio_tensor.T, dim=0, keepdim=True)
+        # print("the soundData is: {}".format(soundData))
+        tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
+        if soundData.numel() < 16000:
+            tempData[:, :soundData.numel()] = soundData
+        else:
+            tempData = soundData[:, :16000]
+
+        soundData = tempData
+
+        # write('data/{}/{}_{}.wav'.format(user_name,str(4), str(audio_ID)),  16000, audio_frames)  # 保存为WAV文件
+        # audio_ID +=1
+        mel_specgram = mel(soundData)
+        # print("the mel_specgram is: {}".format(mel_specgram))
+        mel_specgram = mel_specgram[:,:,:60]
+        mel_specgram = torch.squeeze(mel_specgram)
+
+        # has_nan_m = torch.isnan(mel_specgram)
+        # if torch.any(has_nan_m):
+        #     print("mel has nan")
+        # else:
+        #     print("the size of mel is {}".format(mel_specgram))
+
+# def process_audio():
+#     global temData
+#     # print("process audio")
+#     # 从队列中取出音频数据
+#     # indata = audio_queue.get()
+#     indata = audio_frames
+#     #print("audio_frames shape in process audio is: {}".format(audio_frames.shape)) #记录会出现nan值
+#     has_nan = np.isnan(audio_frames)
+#     # if np.any(has_nan):
+#     #     print("process has nan")
+#     #     indata = temData
+#     # else:
+#         # temData = audio_frames
+#     # print("getting data")
+#     # 音频数据从 numpy 数组转换为 PyTorch 张量
+#     has_nan = np.isnan(indata)
+#     # if np.any(has_nan):
+#     #     print("process still has nan")
 
 
-def process_audio():
-    global audio_frames, mel
-    # print("process audio")
-    # 从队列中取出音频数据
-    # indata = audio_queue.get()
-    indata = audio_frames.T
+#     audio_tensor = torch.from_numpy(indata).float().to(torch.float32)
 
-    # print("getting data")
-    # 音频数据从 numpy 数组转换为 PyTorch 张量
-    audio_tensor = torch.from_numpy(indata).float().to(torch.float32)
-    has_nan = torch.isnan(audio_tensor).any().item()
-    if has_nan:
-        audio_tensor = torch.nan_to_num(audio_tensor, nan=0.0)
-    # print("audio data size {}".format(audio_tensor.shape))
-    # audio_nan = torch.isnan(audio_tensor).any().item()
-    soundData = torch.mean(audio_tensor, dim=0, keepdim=True)
-    tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
-    if soundData.numel() < 16000:
-        tempData[:, :soundData.numel()] = soundData
-    else:
-        tempData = soundData[:, :16000]
+#     soundData = torch.mean(audio_tensor, dim=0, keepdim=True)
+#     tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
+#     if soundData.numel() < 16000:
+#         tempData[:, :soundData.numel()] = soundData
+#     else:
+#         tempData = soundData[:, :16000]
 
-    soundData = tempData
-    print("sound data size after mul {}".format(soundData.shape))
-    # 计算 MFCC
-    mel_specgram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate, hop_length=hop_length-2)(soundData)
-    has_nan = torch.isnan(mel_specgram).any().item()
-    if has_nan:
-        print("sound non--------------")
-        print(mel_specgram.shape)
-        print(mel_specgram)
-    mel_specgram = mel_specgram[:,:,:60]
-    mel_specgram = torch.squeeze(mel_specgram)
-    # mel_specgram = torch.nan_to_num(mel_specgram, nan=0.0)
+#     soundData = tempData
 
-    # 在这里处理或输出 MFCC
-    # print("mfcc: ")
-    # print(mel_specgram.shape)
-    return mel_specgram
+#     # 计算 MFCC
+#     mel_specgram = mel(soundData)
+#     mel_specgram = mel_specgram[:,:,:60]
+#     mel_specgram = torch.squeeze(mel_specgram)
+#     has_nan_m = torch.isnan(mel_specgram)
+#     # if torch.any(has_nan_m):
+#     #     print("mel has nan")
+
+#     # mel_specgram = torch.nan_to_num(mel_specgram, nan=0.0)
+#     # 在这里处理或输出 MFCC
+#     # print("mfcc: ")
+#     # print(mel_specgram.shape)
+#     return mel_specgram
 
 # init TCP connection with unity
 # return the socket connected
@@ -238,6 +270,30 @@ def on_press(key):
 
 def store_data(audio_data, video_data ,output):
     global user_name, error_key, train_data_set
+    # video data only----------------
+    # if len(data) != 60:
+    #     print("store data fail since the data length is less than 28 frame.")
+    #     return
+    # threeDfile = "3D_time_data_feedback.csv"  
+    # twoDfile = "2D_time_data_feedback.csv" 
+    # file_3d = open('data/{}'.format(threeDfile), mode='a', newline='')
+    # file_2d = open('data/{}'.format(twoDfile), mode='a', newline='')
+
+    # data.insert(0,label)
+    
+    # csv_writer1 =  csv.writer(file_3d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    # csv_writer1.writerow(data)
+
+    # csv_writer2 =  csv.writer(file_2d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    # csv_writer2.writerow(data)
+
+    # file_3d.close()
+    # file_2d.close()
+
+    # new store logic-------------------------------
+    # if len(data) != 60:
+    #     print("store data fail since the data length is less than 60 frame. the size is {} ".format(len(data)))
+    #     return
     threeDfile = "3D_time_data_{}_feedback.csv".format(user_name)  
     twoDfile = "2D_time_data_{}_feedback.csv".format(user_name) 
     file_3d = open('data/{}/{}'.format(user_name,threeDfile), mode='a', newline='')
@@ -252,7 +308,21 @@ def store_data(audio_data, video_data ,output):
         train_data_set.append((train_data,label))
         error_key = False
     else:
+        # print("record correct data")
         label = torch.max(output, dim=1).indices
+        # np_audio = audio_data.numpy().T
+        # np_video = np.array(video_data)
+        # print(np_audio.shape)
+        # print(np_video.shape)
+        # record_data = np.concatenate((np_audio,np_video), axis = 1)
+        # # record_data = np.insert(record_data,0,label)
+        # print(record_data.shape)
+        # csv_writer1 =  csv.writer(file_3d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        # csv_writer1.writerow(data)
+
+        # csv_writer2 =  csv.writer(file_2d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        # csv_writer2.writerow(record_data)
+
         label = torch.max(output, dim=1).indices
         train_data = data_combination(video_data, audio_data)
         train_data = torch.squeeze(train_data)
@@ -283,9 +353,7 @@ def train(model, epoch, train_loader):
     print("training---------------")
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        has_nan = torch.isnan(data).any().item()
-        if has_nan:
-            print("fuck again--------------------------")
+        # print("data shape is {}".format(data.shape))
         data = data.to(device)
         target = target.to(device)
         # print("data size: " + str(data.size()))
@@ -324,9 +392,15 @@ def test(model, epoch, test_loader):
 class Dataload(Dataset):
     def __init__(self, user_name):
         global train_data_set
+        # load landmark data.
         self.data = []
         self.data = train_data_set
+        
+        # print(type(transposed_data[0][0]))
+        # print(type(int(label)))
 
+        # load audio data
+        
  
 
     def __len__(self):
@@ -343,10 +417,55 @@ def classification(audio_data, video_data ,model):
     final_data = data_combination(video_data,audio_data)
     final_data = final_data.to(device)
 
+    audio_data = audio_data.T
+    audio_data = audio_data.unsqueeze(0)
+    audio_data = audio_data.to(device)
+    # print(audio_data)
     #---------------Pytorch LSTM--------------------
-    output, hidden_state = model(final_data, model.init_hidden(hyperparameters["batch_size"]))
+    output, hidden_state = model(audio_data, model.init_hidden(hyperparameters["batch_size"]))
     pred = torch.max(output, dim=1).indices
     label = pred
+    # print("the size of audio data is {}".format(audio_data.shape))
+    print(output[0][0:3])
+    # --------------tensorflow alexnet-------------------
+    # if not data:
+    #     return 0
+    # arr = np.array(data)
+    # if arr.shape[0] != 28:
+    #     return 0
+    # # print(arr.shape)
+    # row = arr.reshape(1,28,936,1)
+    # # print(row.shape)
+    # result = model.predict(row)
+    # emotion_probability = np.max(result)
+    # label = EMOTIONS[result.argmax()]
+    # # print(result)s
+    # if(result[0][1] > 0.50):
+    #     label = 1
+    #     # print("expression_1")
+    # elif(result[0][2] > 0.90):
+    #     label = 2
+    #     # print("expression_2")
+    # elif(result[0][3] > 0.90):
+    #     label = 3
+    # elif(result[0][4] > 0.90):
+    #     label = 4
+    # elif(result[0][5] > 0.90):
+    #     label = 5
+    # elif(result[0][6] > 0.90):
+    #     label = 6    
+    # else:
+    #     label = 0
+        # print("expression_2")                     
+        # print("expression_0")
+    # if keyboard.is_pressed('space'):
+    #     # cannot detect the right expression 
+    #     print(result[0][1:].argmax() + 1)
+    #     label = result[0][1:].argmax() + 1
+    #     if args.feedback:
+    #         store_data(data, label)
+    #     # label = EMOTIONS[result[1:].argmax()]
+    # print(label)
     if args.feedback:
         store_data(audio_data, video_data, output)
 
@@ -355,24 +474,17 @@ def classification(audio_data, video_data ,model):
 def data_combination(time_data, audio_data):
     numpy_d = np.array(time_data)
     tem = torch.from_numpy(numpy_d)
-    # tem_has_nan = torch.isnan(tem).any().item()
-    # if tem_has_nan:
-    #     print("tem has nan-------------------")
-    # audio_nan = torch.isnan(audio_data).any().item()
-    # if audio_nan:
-    #     print("audio has nan-------------")
+    # print("tem")
+    # print(tem.shape)
+    # print(audio_data.shape)
+    # print("info")
+    # print(tem.shape)
     final_data = torch.cat((tem.T, audio_data),dim=0) # correct 28, x(time, feature)
-    # fin1 = torch.isnan(final_data).any().item()
-    # if fin1:
-    #     print("fin1 has nan-------------")
+    # print(final_data.shape)
     final_data = final_data.T
-    # fin2 = torch.isnan(final_data).any().item()
-    # if fin2:
-    #     print("fin2 has nan-------------")
+    # print(final_data.shape)
     final_data = final_data.unsqueeze(0)
-    # fin3 = torch.isnan(final_data).any().item()
-    # if fin3:
-    #     print("fin3 has nan-------------")
+    # print(final_data.shape)
     return final_data # 1064
 
 def main():
@@ -472,8 +584,14 @@ def main():
             time_data.append(face_row_2d)
 
             # get audio data
-            audio_data = process_audio()
-            
+            # audio_data = process_audio()
+            audio_data = mel_specgram
+            has_nan = torch.isnan(audio_data)
+
+            # if torch.any(has_nan):
+            #     print("Tensor contains NaN values")
+            # else:
+            #     print("Tensor does not contain NaN values")
 
 
             # get classification result
@@ -607,10 +725,10 @@ if __name__ == "__main__":
     
     parser.add_argument("--feedback", action="store_true",
                         help="collect wrong result and store in dataset",
-                        default=True)
+                        default=False)
     parser.add_argument("--retrain", action="store_true",
                         help="collect wrong result and store in dataset",
-                        default=True)
+                        default=False)
     args = parser.parse_args()
 
     # demo code

@@ -100,7 +100,6 @@ hop_length = sample_rate //60
 duration = 1 # audio record time second
 # 初始化 MFCC 转换器
 mfcc_transform = torchaudio.transforms.MFCC(sample_rate=sample_rate, n_mfcc=12)
-mel = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate, hop_length=hop_length-2)
 
 # 创建一个队列来存储音频数据
 audio_queue = queue.Queue()
@@ -131,40 +130,61 @@ train_data_set = []
 
 
 def audio_record():
-    global audio_frames
+    global audio_frames, mel_specgram
+    mel = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate, hop_length=hop_length-2)
     while(1):
-        audio_frames = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1)
+        audio_frames = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=2)
         sd.wait()
-        # print(audio_frames.shape)
+        #print("audio_frames shape is: {} and type is {}".format(audio_frames.shape, type(audio_frames))) #记录会出现nan值
+        # has_nan = np.isnan(audio_frames)
+        # if np.any(has_nan):
+        #     print("audio_record has nan")
+        audio_tensor = torch.from_numpy(audio_frames).float().to(torch.float32)
+        # print("the audio tensor is: {}".format(audio_tensor.shape))
+        soundData = torch.mean(audio_tensor.T, dim=0, keepdim=True)
+        # print("the soundData is: {}".format(soundData))
+        tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
+        if soundData.numel() < 16000:
+            tempData[:, :soundData.numel()] = soundData
+        else:
+            tempData = soundData[:, :16000]
+
+        soundData = tempData
+        mel_specgram = mel(soundData)
+        # print("the mel_specgram is: {}".format(mel_specgram))
+        mel_specgram = mel_specgram[:,:,:60]
+        mel_specgram = torch.squeeze(mel_specgram)
 
 
-def process_audio():
-    # print("process audio")
-    # 从队列中取出音频数据
-    # indata = audio_queue.get()
-    indata = audio_frames
-    # print("getting data")
-    # 音频数据从 numpy 数组转换为 PyTorch 张量
-    audio_tensor = torch.from_numpy(indata).float().to(torch.float32)
 
-    soundData = torch.mean(audio_tensor, dim=0, keepdim=True)
-    tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
-    if soundData.numel() < 16000:
-        tempData[:, :soundData.numel()] = soundData
-    else:
-        tempData = soundData[:, :16000]
+# def process_audio():
+#     global mel_specgram
+#     while(1):
+#         audio_frames = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=2)
+#         sd.wait()
+#         #print("audio_frames shape is: {} and type is {}".format(audio_frames.shape, type(audio_frames))) #记录会出现nan值
+#         # has_nan = np.isnan(audio_frames)
+#         # if np.any(has_nan):
+#         #     print("audio_record has nan")
+#         audio_tensor = torch.from_numpy(audio_frames).float().to(torch.float32)
+#         # print("the audio tensor is: {}".format(audio_tensor.shape))
+#         soundData = torch.mean(audio_tensor.T, dim=0, keepdim=True)
+#         # print("the soundData is: {}".format(soundData))
+#         tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
+#         if soundData.numel() < 16000:
+#             tempData[:, :soundData.numel()] = soundData
+#         else:
+#             tempData = soundData[:, :16000]
 
-    soundData = tempData
+#         soundData = tempData
 
-    # 计算 MFCC
-    mel_specgram = mel(soundData)
-    mel_specgram = mel_specgram[:,:,:60]
-    mel_specgram = torch.squeeze(mel_specgram)
+#         # write('data/{}/{}_{}.wav'.format(user_name,str(4), str(audio_ID)),  16000, audio_frames)  # 保存为WAV文件
+#         # audio_ID +=1
+#         mel_specgram = mel(soundData)
+#         # print("the mel_specgram is: {}".format(mel_specgram))
+#         mel_specgram = mel_specgram[:,:,:60]
+#         mel_specgram = torch.squeeze(mel_specgram)
     
-    # 在这里处理或输出 MFCC
-    # print("mfcc: ")
-    # print(mel_specgram.shape)
-    return mel_specgram
 
 # init TCP connection with unity
 # return the socket connected
@@ -374,6 +394,7 @@ def classification(audio_data, video_data ,model):
     output, hidden_state = model(final_data, model.init_hidden(hyperparameters["batch_size"]))
     pred = torch.max(output, dim=1).indices
     label = pred
+    print(label)
     # --------------tensorflow alexnet-------------------
     # if not data:
     #     return 0
@@ -435,7 +456,7 @@ def data_combination(time_data, audio_data):
     return final_data # 1064
 
 def main():
-    global user_name, model, stop
+    global user_name, model, stop, mel_specgram
     # Classification data
     classification_result = 0
     time_data = deque()
@@ -531,7 +552,7 @@ def main():
             time_data.append(face_row_2d)
 
             # get audio data
-            audio_data = process_audio()
+            audio_data = mel_specgram
             
 
 
@@ -669,7 +690,7 @@ if __name__ == "__main__":
                         default=True)
     parser.add_argument("--retrain", action="store_true",
                         help="collect wrong result and store in dataset",
-                        default=True)
+                        default=False)
     args = parser.parse_args()
 
     # demo code

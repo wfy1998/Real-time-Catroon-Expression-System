@@ -114,7 +114,7 @@ def record_audio(duration = 1):
         print("has nan----------")
     write('data/{}/{}_{}.wav'.format(user_name,str(expressionID), str(audio_ID)),  fs, audio_frames)  # 保存为WAV文件
     audio_ID +=1
-    print("录音结束，保存中...ID is: {}".format(expressionID))
+    print("录音结束，保存中...ID is: {} size is {}".format(expressionID, audio_frames.shape))
     # print(audio_frames)
     # print(audio_frames.shape)
 
@@ -302,7 +302,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--record_data",action="store_true",
                         help="Store landmark data to database",
-                        default=False)
+                        default=True)
 
     parser.add_argument("--debug", action="store_true",
                         help="showing raw values of detection in the terminal",
