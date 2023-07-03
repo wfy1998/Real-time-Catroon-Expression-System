@@ -28,8 +28,6 @@ from get_facial_features import FacialFeatures, Eyes
 
 import sys
 
-# tensorflow
-import tensorflow as tf
 
 import numpy as np
 import sounddevice as sd
@@ -37,6 +35,7 @@ import torch
 import torchaudio
 import queue
 import threading
+import matplotlib.pyplot as plt
 
 # pytorch
 import torch
@@ -394,7 +393,8 @@ def classification(audio_data, video_data ,model):
     output, hidden_state = model(final_data, model.init_hidden(hyperparameters["batch_size"]))
     pred = torch.max(output, dim=1).indices
     label = pred
-    print(label)
+    #print(label)
+    print(output[0][0:3])
     # --------------tensorflow alexnet-------------------
     # if not data:
     #     return 0
@@ -437,7 +437,7 @@ def classification(audio_data, video_data ,model):
     if args.feedback:
         store_data(audio_data, video_data, output)
 
-    return label
+    return label, output
 
 def data_combination(time_data, audio_data):
     numpy_d = np.array(time_data)
@@ -454,6 +454,11 @@ def data_combination(time_data, audio_data):
     final_data = final_data.unsqueeze(0)
     # print(final_data.shape)
     return final_data # 1064
+
+def draw_result(labels):
+    print("drawing.....")
+    plt.plot(labels)
+    plt.show()
 
 def main():
     global user_name, model, stop, mel_specgram
@@ -474,7 +479,8 @@ def main():
     t.start()
     # use internal webcam/ USB camera
     cap = cv2.VideoCapture(args.cam)
-
+    
+    label_one = []
     # IP cam (android only), with the app "IP Webcam"
     # url = 'http://192.168.0.102:4747/video'
     # url = 'https://192.168.0.102:8080/video'
@@ -557,7 +563,8 @@ def main():
 
 
             # get classification result
-            classification_result = classification(audio_data= audio_data, video_data= time_data, model=model)
+            classification_result, confidence_scores = classification(audio_data= audio_data, video_data= time_data, model=model)
+            label_one.append(int(confidence_scores[0][1]))
 
         # flip the input image so that it matches the facemesh stuff
         img = cv2.flip(img, 1)
@@ -651,14 +658,17 @@ def main():
 
         cv2.imshow('Facial landmark', img_facemesh)
         if stop:
+            print("tracking sys stop...")
             break
         # press "q" to leave
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
-
-    retrain()
+    if args.retrain:
+        retrain()
+    if args.draw_result:
+        draw_result(label_one)
 
 
 if __name__ == "__main__":
@@ -691,6 +701,9 @@ if __name__ == "__main__":
     parser.add_argument("--retrain", action="store_true",
                         help="collect wrong result and store in dataset",
                         default=False)
+    parser.add_argument("--draw_result", action="store_true",
+                        help="collect wrong result and store in dataset",
+                        default=True)
     args = parser.parse_args()
 
     # demo code
