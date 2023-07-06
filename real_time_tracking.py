@@ -43,7 +43,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset,random_split
 import torchaudio
 import torch.optim as optim
-
+import time
 
 
 # model
@@ -116,7 +116,8 @@ kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}  # n
 # record para
 error_key = False
 train_data_set = []
-
+record_count = 15
+ex_change = 0
 # def audio_callback(indata, frames, time, status):
 #     # 将音频数据放入队列
 #     audio_queue.put(indata.copy())
@@ -153,37 +154,6 @@ def audio_record():
         # print("the mel_specgram is: {}".format(mel_specgram))
         mel_specgram = mel_specgram[:,:,:60]
         mel_specgram = torch.squeeze(mel_specgram)
-
-
-
-# def process_audio():
-#     global mel_specgram
-#     while(1):
-#         audio_frames = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=2)
-#         sd.wait()
-#         #print("audio_frames shape is: {} and type is {}".format(audio_frames.shape, type(audio_frames))) #记录会出现nan值
-#         # has_nan = np.isnan(audio_frames)
-#         # if np.any(has_nan):
-#         #     print("audio_record has nan")
-#         audio_tensor = torch.from_numpy(audio_frames).float().to(torch.float32)
-#         # print("the audio tensor is: {}".format(audio_tensor.shape))
-#         soundData = torch.mean(audio_tensor.T, dim=0, keepdim=True)
-#         # print("the soundData is: {}".format(soundData))
-#         tempData = torch.zeros([1, 16000])  # tempData accounts for audio clips that are too short
-#         if soundData.numel() < 16000:
-#             tempData[:, :soundData.numel()] = soundData
-#         else:
-#             tempData = soundData[:, :16000]
-
-#         soundData = tempData
-
-#         # write('data/{}/{}_{}.wav'.format(user_name,str(4), str(audio_ID)),  16000, audio_frames)  # 保存为WAV文件
-#         # audio_ID +=1
-#         mel_specgram = mel(soundData)
-#         # print("the mel_specgram is: {}".format(mel_specgram))
-#         mel_specgram = mel_specgram[:,:,:60]
-#         mel_specgram = torch.squeeze(mel_specgram)
-    
 
 # init TCP connection with unity
 # return the socket connected
@@ -228,83 +198,47 @@ def print_debug_msg(args):
 
 
 def on_press(key):
-    global error_key, stop
+    global error_key, stop, ex_change
     if key == keyboard.Key.space:  # 检测空格键
         print("change on press")
         error_key = True
+    elif key == keyboard.KeyCode.from_char('a'):
+        ex_change = 2
     elif key == keyboard.KeyCode.from_char('q'):
         # 当按下 'q' 键，停止监听器
-        if args.retrain:
-            print("stop--------------")
+        print("stop--------------")
         # sys.exit()
         stop = True
 
-
+def on_release(key):
+    global error_key, ex_change
+    if key == keyboard.Key.space:  # 检测空格键
+        print("change on press")
+        error_key = False
+    elif key == keyboard.KeyCode.from_char('a'):
+        ex_change = 0
 def store_data(audio_data, video_data ,output):
-    global user_name, error_key, train_data_set
-    # video data only----------------
-    # if len(data) != 60:
-    #     print("store data fail since the data length is less than 28 frame.")
-    #     return
-    # threeDfile = "3D_time_data_feedback.csv"  
-    # twoDfile = "2D_time_data_feedback.csv" 
-    # file_3d = open('data/{}'.format(threeDfile), mode='a', newline='')
-    # file_2d = open('data/{}'.format(twoDfile), mode='a', newline='')
-
-    # data.insert(0,label)
-    
-    # csv_writer1 =  csv.writer(file_3d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    # csv_writer1.writerow(data)
-
-    # csv_writer2 =  csv.writer(file_2d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    # csv_writer2.writerow(data)
-
-    # file_3d.close()
-    # file_2d.close()
-
-    # new store logic-------------------------------
-    # if len(data) != 60:
-    #     print("store data fail since the data length is less than 60 frame. the size is {} ".format(len(data)))
-    #     return
-    threeDfile = "3D_time_data_{}_feedback.csv".format(user_name)  
-    twoDfile = "2D_time_data_{}_feedback.csv".format(user_name) 
-    file_3d = open('data/{}/{}'.format(user_name,threeDfile), mode='a', newline='')
-    file_2d = open('data/{}/{}'.format(user_name,twoDfile), mode='a', newline='')
+    global user_name, error_key, train_data_set, record_count
 
     if error_key:
-        # print("record error data")
-        label = torch.max(output, dim=1).indices
+        print("record error data")
+        _, indices = torch.topk(output, k=2)
+        label = indices[0][1]
         train_data = data_combination(video_data, audio_data)
         train_data = torch.squeeze(train_data)
-        label = torch.squeeze(label)
-        train_data_set.append((train_data,label))
-        error_key = False
-    else:
-        # print("record correct data")
-        label = torch.max(output, dim=1).indices
-        # np_audio = audio_data.numpy().T
-        # np_video = np.array(video_data)
-        # print(np_audio.shape)
-        # print(np_video.shape)
-        # record_data = np.concatenate((np_audio,np_video), axis = 1)
-        # # record_data = np.insert(record_data,0,label)
-        # print(record_data.shape)
-        # csv_writer1 =  csv.writer(file_3d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        # csv_writer1.writerow(data)
-
-        # csv_writer2 =  csv.writer(file_2d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        # csv_writer2.writerow(record_data)
-
-        label = torch.max(output, dim=1).indices
-        train_data = data_combination(video_data, audio_data)
-        train_data = torch.squeeze(train_data)
-        # print("info2")
-        # print(train_data.shape)
         numpy_int64 = np.int64(label.item())
         train_data_set.append((train_data,numpy_int64))
+    elif record_count <= 0:
 
-    file_3d.close()
-    file_2d.close()
+        record_count = 60
+        print("record correct data")
+        label = torch.max(output, dim=1).indices
+        train_data = data_combination(video_data, audio_data)
+        train_data = torch.squeeze(train_data)
+        numpy_int64 = np.int64(label.item())
+        # train_data_set.append((train_data,numpy_int64))
+    else:
+         record_count -= 1
     return
 
 def retrain():
@@ -314,9 +248,10 @@ def retrain():
     train_set = Dataload(user_name=user_name)
     # print("train set size: " + str(len(train_set)))
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=hyperparameters["batch_size"], shuffle=True, drop_last=True, **kwargs)
-    for epoch in range(1, 10):
+    for epoch in range(1, 50):
         train(model=model, epoch=epoch, train_loader=train_loader)
         test(model=model, epoch=epoch, test_loader=train_loader)
+    torch.save(model,'models/{}_retrain'.format(user_name))
     return
 
 
@@ -393,47 +328,8 @@ def classification(audio_data, video_data ,model):
     output, hidden_state = model(final_data, model.init_hidden(hyperparameters["batch_size"]))
     pred = torch.max(output, dim=1).indices
     label = pred
-    #print(label)
-    print(output[0][0:3])
-    # --------------tensorflow alexnet-------------------
-    # if not data:
-    #     return 0
-    # arr = np.array(data)
-    # if arr.shape[0] != 28:
-    #     return 0
-    # # print(arr.shape)
-    # row = arr.reshape(1,28,936,1)
-    # # print(row.shape)
-    # result = model.predict(row)
-    # emotion_probability = np.max(result)
-    # label = EMOTIONS[result.argmax()]
-    # # print(result)s
-    # if(result[0][1] > 0.50):
-    #     label = 1
-    #     # print("expression_1")
-    # elif(result[0][2] > 0.90):
-    #     label = 2
-    #     # print("expression_2")
-    # elif(result[0][3] > 0.90):
-    #     label = 3
-    # elif(result[0][4] > 0.90):
-    #     label = 4
-    # elif(result[0][5] > 0.90):
-    #     label = 5
-    # elif(result[0][6] > 0.90):
-    #     label = 6    
-    # else:
-    #     label = 0
-        # print("expression_2")                     
-        # print("expression_0")
-    # if keyboard.is_pressed('space'):
-    #     # cannot detect the right expression 
-    #     print(result[0][1:].argmax() + 1)
-    #     label = result[0][1:].argmax() + 1
-    #     if args.feedback:
-    #         store_data(data, label)
-    #     # label = EMOTIONS[result[1:].argmax()]
-    # print(label)
+    print(label)
+    #print(output[0][0:4])
     if args.feedback:
         store_data(audio_data, video_data, output)
 
@@ -455,13 +351,14 @@ def data_combination(time_data, audio_data):
     # print(final_data.shape)
     return final_data # 1064
 
-def draw_result(labels):
+def draw_result(labels, target_label,time):
     print("drawing.....")
-    plt.plot(labels)
+    plt.plot(time, labels, label='confidence score')
+    plt.plot(time, target_label, label='expression change')
     plt.show()
 
 def main():
-    global user_name, model, stop, mel_specgram
+    global user_name, model, stop, mel_specgram,ex_change
     # Classification data
     classification_result = 0
     time_data = deque()
@@ -469,7 +366,7 @@ def main():
     frame_count = 0
 
     # 开始键盘监听
-    listener = keyboard.Listener(on_press=on_press)
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.start()
 
     # stream_thread = threading.Thread(target=stream_thread_function, args=(audio_callback, sample_rate, chunk_samples))
@@ -481,12 +378,16 @@ def main():
     cap = cv2.VideoCapture(args.cam)
     
     label_one = []
+    target_label = []
+    time_sec = []
+    start_time = time.time() 
     # IP cam (android only), with the app "IP Webcam"
     # url = 'http://192.168.0.102:4747/video'
     # url = 'https://192.168.0.102:8080/video'
     # cap = cv2.VideoCapture(url)
-
-    # model = torch.load('models/{}'.format(user_name))
+    if args.retrain_model:
+        print("change the model to retrain model")
+        model = torch.load('models/{}_retrain'.format(user_name))
 
     # Facemesh
     detector = FaceMeshDetector()
@@ -559,13 +460,13 @@ def main():
 
             # get audio data
             audio_data = mel_specgram
-            
-
 
             # get classification result
             classification_result, confidence_scores = classification(audio_data= audio_data, video_data= time_data, model=model)
-            label_one.append(int(confidence_scores[0][1]))
-
+            label_one.append(classification_result)
+            target_label.append(ex_change)
+            current_time =int((time.time() - start_time) * 1000)   # 计算经过的时间（秒）
+            time_sec.append(current_time)  # 将时间添加到数组中
         # flip the input image so that it matches the facemesh stuff
         img = cv2.flip(img, 1)
 
@@ -665,10 +566,10 @@ def main():
             break
 
     cap.release()
-    if args.retrain:
+    if args.feedback:
         retrain()
     if args.draw_result:
-        draw_result(label_one)
+        draw_result(label_one, target_label,time_sec)
 
 
 if __name__ == "__main__":
@@ -696,14 +597,15 @@ if __name__ == "__main__":
                         default=False)
     
     parser.add_argument("--feedback", action="store_true",
-                        help="collect wrong result and store in dataset",
-                        default=True)
-    parser.add_argument("--retrain", action="store_true",
-                        help="collect wrong result and store in dataset",
+                        help="collect wrong result and retrain",
                         default=False)
+
     parser.add_argument("--draw_result", action="store_true",
                         help="collect wrong result and store in dataset",
                         default=True)
+    parser.add_argument("--retrain_model", action="store_true",
+                        help="Use the retrain model",
+                        default=False)
     args = parser.parse_args()
 
     # demo code

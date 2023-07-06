@@ -191,7 +191,7 @@ print("Test set size: " + str(len(train_set)))
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}  # needed for using datasets on gpu
 
-train_ration = 0.8
+train_ration = 0.9
 test_ration = 1-train_ration
 
 num_samples = len(train_set)

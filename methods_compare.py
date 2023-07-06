@@ -105,9 +105,9 @@ audio_queue = queue.Queue()
 
 # model para
 device = torch.device("cpu")
-model1 = torch.load('models/{}'.format("wfy2"))
+model1 = torch.load('models/{}'.format("wfy"))
 model1.to(device)
-model2 = torch.load('models/{}'.format("wfy3"))
+model2 = torch.load('models/{}'.format("wfy1"))
 model2.to(device)
 criterion = nn.CrossEntropyLoss()
 clip = 5  # gradient clipping
@@ -118,7 +118,7 @@ kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}  # n
 # record para
 error_key = False
 train_data_set = []
-
+ex_change = 0
 # def audio_callback(indata, frames, time, status):
 #     # 将音频数据放入队列
 #     audio_queue.put(indata.copy())
@@ -230,10 +230,12 @@ def print_debug_msg(args):
 
 
 def on_press(key):
-    global error_key, stop
+    global error_key, stop, ex_change
     if key == keyboard.Key.space:  # 检测空格键
         print("change on press")
         error_key = True
+    if key == keyboard.KeyCode.from_char('a'):
+        ex_change = 3
     elif key == keyboard.KeyCode.from_char('q'):
         # 当按下 'q' 键，停止监听器
         if args.retrain:
@@ -241,6 +243,10 @@ def on_press(key):
         # sys.exit()
         stop = True
 
+def on_release(key):
+    global error_key, stop, ex_change
+    if key == keyboard.KeyCode.from_char('a'):
+        ex_change = 0
 
 def store_data(audio_data, video_data ,output):
     global user_name, error_key, train_data_set
@@ -458,15 +464,19 @@ def data_combination(time_data, audio_data):
     # print(final_data.shape)
     return final_data # 1064
 
-def draw_result(labels,labels2):
+def draw_result(labels,labels2,change_record):
     print("drawing.....")
-    plt.plot(labels, label='Array 1')
-    plt.plot(labels2, label='Array 2')
+    plt.plot(labels, label='new')
+    plt.plot(labels2, label='old')
+    print(change_record)
+    plt.plot(change_record, label='stander')
+
+
     plt.legend()
     plt.show()
 
 def main():
-    global user_name, model1,model2, stop, mel_specgram
+    global user_name, model1,model2, stop, mel_specgram, ex_change
     # Classification data
     classification_result = 0
     time_data = deque()
@@ -474,7 +484,7 @@ def main():
     frame_count = 0
 
     # 开始键盘监听
-    listener = keyboard.Listener(on_press=on_press)
+    listener = keyboard.Listener(on_press=on_press,on_release=on_release)
     listener.start()
 
     # stream_thread = threading.Thread(target=stream_thread_function, args=(audio_callback, sample_rate, chunk_samples))
@@ -487,6 +497,7 @@ def main():
     
     label_one = []
     label_one2 = []
+    change_record = []
     # IP cam (android only), with the app "IP Webcam"
     # url = 'http://192.168.0.102:4747/video'
     # url = 'https://192.168.0.102:8080/video'
@@ -570,8 +581,14 @@ def main():
 
             # get classification result
             classification_result, confidence_scores1, confidence_scores2 = classification(audio_data= audio_data, video_data= time_data, model1=model1, model2=model2)
-            label_one.append(float(confidence_scores1[0][1]))
-            label_one2.append(float(confidence_scores2[0][1]))
+            pred1 = torch.max(confidence_scores1, dim=1).indices
+            pred2 = torch.max(confidence_scores2, dim=1).indices
+                        
+            label_one.append(pred1)
+            label_one2.append(pred2)
+            # label_one.append(float(confidence_scores1[0][3]))
+            # label_one2.append(float(confidence_scores2[0][1]))
+            change_record.append(ex_change)
 
         # flip the input image so that it matches the facemesh stuff
         img = cv2.flip(img, 1)
@@ -675,7 +692,7 @@ def main():
     if args.retrain:
         retrain()
     if args.draw_result:
-        draw_result(label_one,label_one2)
+        draw_result(label_one,label_one2,change_record)
 
 
 if __name__ == "__main__":

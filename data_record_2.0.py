@@ -20,6 +20,7 @@ from core.face_geometry import (
 )
 from collections import deque 
 import pandas as pd
+from get_facial_landmark import FaceMeshDetector
 
 # pytorch
 import torch
@@ -188,214 +189,94 @@ def main():
     t.daemon = True
     t.start()
 
+    # Facemesh
+    detector = FaceMeshDetector()
+
+    cap = cv2.VideoCapture(args.cam)
+
+    success, img = cap.read()
+
+
     print("open mediapipe windows")
-    with mp_face_mesh.FaceMesh(
-      max_num_faces=1,
-      refine_landmarks=True,
-      min_detection_confidence=0.5,
-      min_tracking_confidence=0.5) as face_mesh:
-        while cap.isOpened():
-            success, image = cap.read()
-            if not success:
-                print("Ignoring empty camera frame.")
-                # If loading a video, use 'break' instead of 'continue'.
-                continue 
-            # To improve performance, optionally mark the image as not writeable to
-            # pass by reference.
-            image.flags.writeable = False
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            # image2 = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = face_mesh.process(image)
+    while cap.isOpened():
+        success, img = cap.read()
 
-            # Draw the face mesh annotations on the image.
-            image.flags.writeable = True
-            # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            if results.multi_face_landmarks:
-                for face_landmarks in results.multi_face_landmarks:
-                    mp_drawing.draw_landmarks(
-                        image=image,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_TESSELATION,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles
-                        .get_default_face_mesh_tesselation_style())
-                    mp_drawing.draw_landmarks(
-                        image=image,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_CONTOURS,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles
-                        .get_default_face_mesh_contours_style())
-                    mp_drawing.draw_landmarks(
-                        image=image,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_IRISES,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles
-                        .get_default_face_mesh_iris_connections_style())
-            cv2.imshow('MediaPipe Face Mesh', cv2.flip(image, 1))
+        if not success:
+            print("Ignoring empty camera frame.")
+            continue
+        img_facemesh, faces, face_row_3d,face_row_2d = detector.findFaceMesh(img)
+        cv2.imshow('Facial landmark', img_facemesh)
+        if frame_count < frame_step:
+            rows_3d.append(face_row_3d)
+            rows_2d.append(face_row_2d)
+            frame_count += 1  
 
-
-            if args.data_normalization:
-                landmarks = np.array([(lm.x, lm.y, lm.z) for lm in results.multi_face_landmarks[0].landmark ])
-                landmarks = landmarks.T
-                landmarks = landmarks[:, :landmark_number]
-                metric_landmarks, pose_transform_mat = get_metric_landmarks(
-                        landmarks.copy(), pcf
-                    )
-                model_points = metric_landmarks[0:3, points_idx].T
+        else:
+            rows_3d.popleft()
+            # time_data.append(relative_face)
+            rows_3d.append(face_row_2d)
             
-                origin_x = model_points[0][0]
-                origin_y = model_points[0][1]
-                origin_z = model_points[0][2]
-                face_row_3d = list(np.array([[origin_x - landmark[0], origin_y -  landmark[1], origin_z - landmark[2]] for landmark in model_points]).flatten())
-                face_row_2d = list(np.array([[origin_x - landmark[0], origin_y -  landmark[1]] for landmark in model_points]).flatten())
+            rows_2d.popleft()
+            # time_data.append(relative_face)
+            rows_2d.append(face_row_2d)
+            # if record the data
+            
+            # label change to special
+            if space_press:
+                label = expressionID
+                frame_back_count = frame_step
+                special_count -= 1
+            # elif frame_back_count > 0:
+            #     print("delay")
+            #     label = expressionID
+            #     frame_back_count -=1
+            #     special_count -= 1
             else:
-                face = results.multi_face_landmarks[0].landmark 
-                origin_x = face[0].x
-                origin_y = face[0].y
-                origin_z = face[0].z
-                face_row_3d = list(np.array([[origin_x - landmark.x, origin_y -  landmark.y, origin_z - landmark.z] for landmark in face]).flatten())
-                face_row_2d = list(np.array([[origin_x - landmark.x, origin_y -  landmark.y] for landmark in face]).flatten())
+                label = 0
+                normal_count -= 1
+            # keep recording data 
+            mel_specgram = torch.squeeze(mel_specgram)
+            audio_data = mel_specgram
+            video_data = rows_2d
+            
+            final_data = data_combination(time_data=video_data,audio_data=audio_data)
+            #print("final_data shape is {}".format(final_data.shape))
+            # 插入label
 
-            if frame_count < frame_step:
-                rows_3d.append(face_row_3d)
-                rows_2d.append(face_row_2d)
-                frame_count += 1  
+            # 存进csv file
+            if args.record_data:
 
-            else:
-                rows_3d.popleft()
-                # time_data.append(relative_face)
-                rows_3d.append(face_row_2d)
-                
-                rows_2d.popleft()
-                # time_data.append(relative_face)
-                rows_2d.append(face_row_2d)
-                # if record the data
-                
-                # label change to special
-                if space_press:
-                    label = expressionID
-                    frame_back_count = frame_step
-                    special_count -= 1
-                elif frame_back_count > 0:
-                    print("delay")
-                    label = expressionID
-                    frame_back_count -=1
-                    special_count -= 1
+                if label == 0 and normal_count <= 0 :
+                    print("store 0")
+                    normal_count = 15
+                    # 将数据和标签转换为列表
+                    data_list = final_data.tolist()
+                    label_list = [label]
+                    # 创建包含数据和标签的 DataFrame
+                    df = pd.DataFrame({'label': label_list, 'data': [data_list] })
+                    # 将 DataFrame 存储为 CSV 文件
+                    csv_filename = 'data/{}/{}_2D_data.csv'.format(user_name,user_name)
+                    df.to_csv(csv_filename, mode='a', header=not pd.io.common.file_exists(csv_filename), index=False)
+
+                elif label == 0:
+                    # print("continue no store")
+                    pass
+                elif special_count <= 0:
+                    print("store special")
+                    special_count = 5
+                    data_list = final_data.tolist()
+                    label_list = [label]
+                    # 创建包含数据和标签的 DataFrame
+                    df = pd.DataFrame({ 'label': label_list,'data': [data_list]})
+                    # 将 DataFrame 存储为 CSV 文件
+                    csv_filename = 'data/{}/{}_2D_data.csv'.format(user_name,user_name)
+                    df.to_csv(csv_filename, mode='a', header=not pd.io.common.file_exists(csv_filename), index=False)
                 else:
-                    label = 0
-                    normal_count -= 1
-                # keep recording data 
-                mel_specgram = torch.squeeze(mel_specgram)
-                audio_data = mel_specgram
-                video_data = rows_2d
-                
-                final_data = data_combination(time_data=video_data,audio_data=audio_data)
-                #print("final_data shape is {}".format(final_data.shape))
-                # 插入label
-
-                # 存进csv file
-                if args.record_data:
-
-                    if label == 0 and normal_count <= 0 :
-                        print("store 0")
-                        normal_count = 15
-                        # 将数据和标签转换为列表
-                        data_list = final_data.tolist()
-                        label_list = [label]
-                        # 创建包含数据和标签的 DataFrame
-                        df = pd.DataFrame({'label': label_list, 'data': [data_list] })
-                        # 将 DataFrame 存储为 CSV 文件
-                        csv_filename = 'data/{}/{}_2D_data.csv'.format(user_name,user_name)
-                        df.to_csv(csv_filename, mode='a', header=not pd.io.common.file_exists(csv_filename), index=False)
-
-                    elif label == 0:
-                        # print("continue no store")
-                        pass
-                    elif special_count <= 0:
-                        print("store special")
-                        special_count = 5
-                        data_list = final_data.tolist()
-                        label_list = [label]
-                        # 创建包含数据和标签的 DataFrame
-                        df = pd.DataFrame({ 'label': label_list,'data': [data_list]})
-                        # 将 DataFrame 存储为 CSV 文件
-                        csv_filename = 'data/{}/{}_2D_data.csv'.format(user_name,user_name)
-                        df.to_csv(csv_filename, mode='a', header=not pd.io.common.file_exists(csv_filename), index=False)
-                    else:
-                        pass
-
-                
-            # recording data
-            # if args.press_key:
-            #     if recording_audio:
-            #         t = threading.Thread(target=record_audio)
-            #         t.daemon = True
-            #         t.start()
-            #         recording_audio = False
-            #     if recording_video:
-            #         print("start recording video")
-            #         record_video = 1
-            #         recording_video = False
-            # else: # keep recording data
-            #     record_video = 1
-
-            # if record_video == 1: 
-            #     if frame_count < frame_step:
-            #         if args.data_normalization:
-            #             landmarks = np.array([(lm.x, lm.y, lm.z) for lm in results.multi_face_landmarks[0].landmark ])
-            #             landmarks = landmarks.T
-            #             landmarks = landmarks[:, :landmark_number]
-            #             metric_landmarks, pose_transform_mat = get_metric_landmarks(
-            #                     landmarks.copy(), pcf
-            #                 )
-            #             model_points = metric_landmarks[0:3, points_idx].T
-                    
-            #             origin_x = model_points[0][0]
-            #             origin_y = model_points[0][1]
-            #             origin_z = model_points[0][2]
-            #             face_row_3d = list(np.array([[origin_x - landmark[0], origin_y -  landmark[1], origin_z - landmark[2]] for landmark in model_points]).flatten())
-            #             face_row_2d = list(np.array([[origin_x - landmark[0], origin_y -  landmark[1]] for landmark in model_points]).flatten())
-            #         else:
-            #             face = results.multi_face_landmarks[0].landmark 
-            #             origin_x = face[0].x
-            #             origin_y = face[0].y
-            #             origin_z = face[0].z
-            #             face_row_3d = list(np.array([[origin_x - landmark.x, origin_y -  landmark.y, origin_z - landmark.z] for landmark in face]).flatten())
-            #             face_row_2d = list(np.array([[origin_x - landmark.x, origin_y -  landmark.y] for landmark in face]).flatten())
-
-            #         rows_3d.append(face_row_3d)
-            #         rows_2d.append(face_row_2d)
-            #         frame_count += 1   
-            #     else:
-            #         record_video = 0
-            #         rows_3d.insert(0,expressionID)
-            #         rows_2d.insert(0,expressionID)
-            #         # write 3D data to file
-            #         if args.record_data:
-            #             csv_writer1 =  csv.writer(file_3d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            #             csv_writer1.writerow(rows_3d)
-
-            #             csv_writer2 =  csv.writer(file_2d, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            #             csv_writer2.writerow(rows_2d)
-            #             print("record finish, size is: " + str(len(rows_2d)) + " and: " + str(len(rows_2d[1])))
-
-            #         else:
-            #             print("record finish, size is: " + str(len(rows_2d)) + " and: " + str(len(rows_2d[1])))
-            #             print("record fail")
-            #         rows_3d = []
-            #         rows_2d = []
-            #         frame_count =0
-            #         recording_video = False
+                    pass
             if cv2.waitKey(1) & 0xFF == 'q':
                 break
         # cv2.imshow('second window', cv2.flip(image2,1))
-
-        # 结束后释放资源
-        # file_3d.close()
-        # file_2d.close()
-        cap.release()
+    cap.release()
 
 
 
@@ -414,6 +295,9 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true",
                         help="showing raw values of detection in the terminal",
                         default=False)
+    parser.add_argument("--cam", type=int,
+                        help="specify the camera number if you have multiple cameras",
+                        default=0)
 
     args = parser.parse_args()
 
